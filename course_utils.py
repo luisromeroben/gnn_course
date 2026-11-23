@@ -763,13 +763,14 @@ def run_single_epanet_scenario(
     leak_t_start=None,
 ):
     """Apply perturbed demands (and optional emitter leak at t_start) and run EPANET."""
-    # 1. Set perturbed junction base demands (in SI m^3/s)
+    # Actualizar demandas vía demand_timeseries_list[0].base_value (en SI: m^3/s)
     for jname, d0, m in zip(junc_names, base_demands_0, demand_mult):
-        wn.get_node(jname).base_demand = float(d0 * m)
+        ts_list = wn.get_node(jname).demand_timeseries_list
+        if len(ts_list) > 0:
+            ts_list[0].base_value = float(d0 * m)
 
     has_leak = (leak_node_name is not None) and (leak_ce > 0.0)
     if has_leak:
-        # Attach a zero-head-loss virtual emitter branch opened via SimTimeCondition at t_start
         target_junc = wn.get_node(leak_node_name)
         wn.add_junction("__LEAK_JUNC__", base_demand=0.0, elevation=float(target_junc.elevation))
         wn.get_node("__LEAK_JUNC__").emitter_coefficient = float(leak_ce)
@@ -799,12 +800,14 @@ def run_single_epanet_scenario(
             if has_leak else np.zeros(n_timesteps, dtype=np.float32)
         )
     finally:
-        # Clean up temporary leak elements and restore original base demands
         if has_leak:
             wn.remove_control("__LEAK_CTRL__")
             wn.remove_link("__LEAK_PIPE__")
             wn.remove_node("__LEAK_JUNC__")
+        # Restaurar demandas base originales
         for jname, d0 in zip(junc_names, base_demands_0):
-            wn.get_node(jname).base_demand = float(d0)
+            ts_list = wn.get_node(jname).demand_timeseries_list
+            if len(ts_list) > 0:
+                ts_list[0].base_value = float(d0)
 
     return P, D, H, Q, q_leak
