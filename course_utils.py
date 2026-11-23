@@ -725,3 +725,86 @@ def plot_matrix(
         plt.tight_layout()
         plt.show()
     return None if created_fig else ax
+
+# ==============================================================================
+# Helpers for hydraulic simulations
+# ==============================================================================
+
+def select_candidate_leak_nodes(wn, node_names, pos_dict, P_baseline, n_select, min_pressure=15.0):
+    """Pick spatially distributed junctions whose minimum 24h baseline pressure > min_pressure."""
+    eligible = [
+        name for name in wn.junction_name_list
+        if P_baseline[:, node_names.index(name)].min() >= min_pressure
+    ]
+    if len(eligible) <= n_select:
+        return eligible
+
+    # Greedy farthest-point sampling on (x, y) coordinates for uniform city-wide coverage
+    coords = np.array([pos_dict[name] for name in eligible], dtype=float)
+    selected_idx = [0]
+    min_dists = np.linalg.norm(coords - coords[0], axis=1)
+    for _ in range(1, n_select):
+        next_idx = int(np.argmax(min_dists))
+        selected_idx.append(next_idx)
+        min_dists = np.minimum(min_dists, np.linalg.norm(coords - coords[next_idx], axis=1))
+    return [eligible[i] for i in selected_idx]
+
+def run_single_epanet_scenario(
+    wn,
+    node_names,
+    link_names,
+    junc_names,
+    base_demands_0,
+    demand_mult,
+    n_timesteps,
+    tmpdir,
+    leak_node_name=None,
+    leak_ce=0.0,
+    leak_t_start=None,
+):
+    """Apply perturbed demands (and optional emitter leak at t_start) and run EPANET."""
+    # 1. Set perturbed junction base demands (in SI m^3/s)
+    for jname, d0, m in zip(junc_names, base_demands_0, demand_mult):
+        wn.get_node(jname).base_demand = float(d0 * m)
+
+    has_leak = (leak_node_name is not None) and (leak_ce > 0.0)
+    if has_leak:
+        # Attach a zero-head-loss virtual emitter branch opened via SimTimeCondition at t_start
+        target_junc = wn.get_node(leak_node_name)
+        wn.add_junction("__LEAK_JUNC__", base_demand=0.0, elevation=float(target_junc.elevation))
+        wn.get_node("__LEAK_JUNC__").emitter_coefficient = float(leak_ce)
+        wn.add_pipe(
+            "__LEAK_PIPE__",
+            start_node_name=leak_node_name,
+            end_node_name="__LEAK_JUNC__",
+            length=0.1,
+            diameter=1.0,
+            roughness=150.0,
+            initial_status="CLOSED",
+        )
+        act = wntr.network.controls.ControlAction(wn.get_link("__LEAK_PIPE__"), "status", wntr.network.LinkStatus.Open)
+        cond = wntr.network.controls.SimTimeCondition(wn, "=", f"{int(leak_t_start)}:00:00")
+        wn.add_control("__LEAK_CTRL__", wntr.network.controls.Control(cond, act, name="__LEAK_CTRL__"))
+
+    try:
+        sim = wntr.sim.EpanetSimulator(wn)
+        res = sim.run_sim(file_prefix=os.path.join(tmpdir, "modena_run"))
+
+        P = res.node["pressure"][node_names].iloc[:n_timesteps].to_numpy(dtype=np.float32)
+        D = res.node["demand"][node_names].iloc[:n_timesteps].to_numpy(dtype=np.float32)
+        H = res.node["head"][node_names].iloc[:n_timesteps].to_numpy(dtype=np.float32)
+        Q = res.link["flowrate"][link_names].iloc[:n_timesteps].to_numpy(dtype=np.float32)
+        q_leak = (
+            res.link["flowrate"]["__LEAK_PIPE__"].iloc[:n_timesteps].to_numpy(dtype=np.float32)
+            if has_leak else np.zeros(n_timesteps, dtype=np.float32)
+        )
+    finally:
+        # Clean up temporary leak elements and restore original base demands
+        if has_leak:
+            wn.remove_control("__LEAK_CTRL__")
+            wn.remove_link("__LEAK_PIPE__")
+            wn.remove_node("__LEAK_JUNC__")
+        for jname, d0 in zip(junc_names, base_demands_0):
+            wn.get_node(jname).base_demand = float(d0)
+
+    return P, D, H, Q, q_leak
