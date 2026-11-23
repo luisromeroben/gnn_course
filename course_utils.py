@@ -1,5 +1,6 @@
 import numpy as np
 import networkx as nx
+import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -612,6 +613,113 @@ def plot_graph_edge_signal(
         ax.set_title(title, fontsize=13, pad=10)
     ax.margins(margins)
     ax.axis("off")
+
+    if created_fig:
+        plt.tight_layout()
+        plt.show()
+    return None if created_fig else ax
+
+# ==============================================================================
+# 5. Plot Matrices as Colour-Pixel Images
+# ==============================================================================
+
+def plot_matrix(
+    M,
+    title="Matrix Heatmap",
+    cmap="viridis",
+    vmin=None,
+    vmax=None,
+    symmetric_cbar=False,
+    mask_zeros=False,
+    zero_color="#f4f6f9",
+    zero_tol=1e-12,
+    annot=False,
+    annot_fmt="{:.2g}",
+    annot_fontsize=9,
+    xlabel="Column index (nodes / edges)",
+    ylabel="Row index (nodes)",
+    cbar_label="Entry value",
+    show_cbar=True,
+    show_grid=False,
+    figsize=(5.5, 4.8),
+    ax=None,
+):
+    """
+    Represent a dense NumPy array or SciPy sparse matrix as a pixel image
+    using a Matplotlib colormap.
+    """
+    created_fig = ax is None
+    if created_fig:
+        fig, ax = plt.subplots(figsize=figsize)
+
+    arr = M.toarray() if sp.issparse(M) else np.asarray(M, dtype=float)
+    if arr.ndim != 2:
+        raise ValueError(f"Expected a 2D matrix, got shape {arr.shape}.")
+
+    if symmetric_cbar:
+        abs_max = float(np.max(np.abs(arr))) if arr.size > 0 else 1.0
+        abs_max = abs_max if abs_max > 0 else 1.0
+        vmin = -abs_max if vmin is None else vmin
+        vmax = abs_max if vmax is None else vmax
+    else:
+        vmin = float(np.min(arr)) if vmin is None else vmin
+        vmax = float(np.max(arr)) if vmax is None else vmax
+        if np.isclose(vmin, vmax):
+            vmin -= 0.5
+            vmax += 0.5
+
+    colormap = plt.get_cmap(cmap).copy()
+    if mask_zeros:
+        data_to_plot = np.ma.masked_where(np.abs(arr) <= zero_tol, arr)
+        colormap.set_bad(color=zero_color)
+    else:
+        data_to_plot = arr
+
+    im = ax.imshow(
+        data_to_plot,
+        cmap=colormap,
+        vmin=vmin,
+        vmax=vmax,
+        aspect="equal",
+        interpolation="nearest",
+    )
+
+    if show_grid:
+        n_rows, n_cols = arr.shape
+        ax.set_xticks(np.arange(-0.5, n_cols, 1), minor=True)
+        ax.set_yticks(np.arange(-0.5, n_rows, 1), minor=True)
+        ax.grid(which="minor", color="#d0d7de", linestyle="-", linewidth=0.6)
+        ax.tick_params(which="minor", bottom=False, left=False)
+
+    if annot:
+        n_rows, n_cols = arr.shape
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        for i in range(n_rows):
+            for j in range(n_cols):
+                val = arr[i, j]
+                if mask_zeros and abs(val) <= zero_tol:
+                    txt_color = "#6e7781"
+                else:
+                    r, g, b, _ = colormap(norm(val))
+                    lum = 0.299 * r + 0.587 * g + 0.114 * b
+                    txt_color = "black" if lum > 0.55 else "white"
+                ax.text(
+                    j, i, annot_fmt.format(val),
+                    ha="center", va="center",
+                    color=txt_color, fontsize=annot_fontsize, fontweight="bold",
+                )
+
+    if show_cbar:
+        cbar = plt.colorbar(im, ax=ax, shrink=0.82, pad=0.03)
+        if cbar_label:
+            cbar.set_label(cbar_label, fontsize=10)
+
+    if title:
+        ax.set_title(title, fontsize=12, pad=10)
+    if xlabel:
+        ax.set_xlabel(xlabel, fontsize=10)
+    if ylabel:
+        ax.set_ylabel(ylabel, fontsize=10)
 
     if created_fig:
         plt.tight_layout()
