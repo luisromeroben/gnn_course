@@ -3,6 +3,7 @@ import networkx as nx
 import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import wntr
 
 def _contrasting_text_color(color):
     """Return 'black' or 'white' based on background luminance for legibility."""
