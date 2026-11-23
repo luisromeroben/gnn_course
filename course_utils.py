@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import wntr
 import os
+import time
+import tempfile
 
 def _contrasting_text_color(color):
     """Return 'black' or 'white' based on background luminance for legibility."""
