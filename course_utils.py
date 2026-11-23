@@ -1,3 +1,7 @@
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+import matplotlib.colors as mcolors
+
 def _contrasting_text_color(color):
     """Return 'black' or 'white' based on background luminance for legibility."""
     r, g, b = mcolors.to_rgb(color)
