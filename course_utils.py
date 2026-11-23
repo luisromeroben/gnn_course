@@ -1,5 +1,6 @@
+import numpy as np
+import networkx as nx
 import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
 import matplotlib.colors as mcolors
 
 def _contrasting_text_color(color):
